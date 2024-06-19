@@ -44,6 +44,14 @@ public class GoBackN {
         }
     }
 
+    public void startTimer(double delay) {
+
+    }
+
+    private static void stopTimer(){
+
+    }
+
     public static void main(String[] args) {
         NWEmu emu = new NWEmu(new GoBackNSender(), new GoBackNReciever());
         emu.emulate(1000, 0.1, 0.2, 0.01, 2);

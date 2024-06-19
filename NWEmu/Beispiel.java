@@ -1,3 +1,5 @@
+package NWEmu;
+
 import fau.cs7.nwemu.*;
 
 public class Beispiel {
