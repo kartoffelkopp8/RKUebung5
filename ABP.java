@@ -25,10 +25,10 @@ public class ABP {
             }
             checksum += inbound.acknum + inbound.seqnum;
             //check sequence number
-            if(checksum == inbound.checksum){
-
+            if(checksum == inbound.checksum && inbound.acknum == pkt.seqnum){
+                seq = (seq + 1) % 2;
             }else{
-
+                timerInterrupt();
             }
             super.input(inbound);
         }
@@ -49,6 +49,7 @@ public class ABP {
             startTimer(10.0);
             toLayer3(pkt);
             sending = true;
+            //inkrementiere seq
             sysLog(1, "sending...");
             return true;
         }
