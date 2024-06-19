@@ -5,20 +5,32 @@ public class ABP {
         private int seq;
         private boolean sending;
         private NWEmuPkt pkt;
+        private int checksum;
 
         @Override
         public void init() {
             seq = 0;
             sending = false;
             pkt = new NWEmuPkt();
+            checksum = 0;
             super.init();
             sysLog(1, "Initialising host");
         }
 
         @Override
-        public void input(NWEmuPkt arg0) {
-            // TODO Auto-generated method stub
-            super.input(arg0);
+        public void input(NWEmuPkt inbound) {
+            stopTimer();
+            for(int i = 0; i < NWEmu.PAYSIZE; i++){
+                checksum += inbound.payload[i];
+            }
+            checksum += inbound.acknum + inbound.seqnum;
+            //check sequence number
+            if(checksum == inbound.checksum){
+
+            }else{
+
+            }
+            super.input(inbound);
         }
 
         @Override
@@ -27,7 +39,6 @@ public class ABP {
                 return false;
             }
             //initialise paket
-            int checksum = 0;
             pkt.acknum = -1;
             pkt.seqnum = 0;
             for(int i = 0; i < NWEmu.PAYSIZE; i++){
