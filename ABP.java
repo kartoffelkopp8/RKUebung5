@@ -16,7 +16,7 @@ public class ABP {
 
         @Override
         public void input(NWEmuPkt packet) {
-            if (!isAwaitingAck || packet.acknum != seqnum || packet.acknum != packet.checksum) return;
+            if (!isAwaitingAck || packet.acknum != seqnum || packet.checksum != calculateChecksum(packet)) return;
             seqnum = 1-seqnum;
             isAwaitingAck = false;
             stopTimer();
@@ -49,12 +49,7 @@ public class ABP {
             NWEmuPkt pkt = new NWEmuPkt();
             pkt.seqnum = seqnum;
             pkt.payload = currentMsg.data;
-
-            // Calculate checksum
-            pkt.checksum = pkt.seqnum + pkt.acknum + pkt.flags;
-            for (int i = 0; i < pkt.payload.length; i++) {
-                pkt.checksum += pkt.payload[i];
-            }
+            pkt.checksum = calculateChecksum(pkt);
 
             toLayer3(pkt);
         }
@@ -72,11 +67,7 @@ public class ABP {
         @Override
         public void input(NWEmuPkt packet) {
             // Verify Checksum
-            int expectedChecksum = packet.seqnum + packet.acknum + packet.flags;
-            for (int i = 0; i < packet.payload.length; i++) {
-                expectedChecksum += packet.payload[i];
-            }
-            if (packet.checksum != expectedChecksum) return;
+            if (packet.checksum != calculateChecksum(packet)) return;
 
             // Recieve data (Only new ones, not when it was resent because of a lost ack)
             if (packet.seqnum == seqnum) {
@@ -88,10 +79,19 @@ public class ABP {
             // Send ack (Even for old packets, to resend ack if lost)
             NWEmuPkt ack = new NWEmuPkt();
             ack.acknum = packet.seqnum;
-            ack.checksum = ack.acknum;
+            ack.checksum = calculateChecksum(ack); // We don't actually need the full message to be intact, this would be enough: ack.checksum = ack.acknum;
             toLayer3(ack);
+
             seqnum = 1-packet.seqnum;
         }
+    }
+
+    public static int calculateChecksum(NWEmuPkt packet) {
+        int checksum = packet.seqnum + packet.acknum + packet.flags;
+        for (int i = 0; i < packet.payload.length; i++) {
+            checksum += packet.payload[i];
+        }
+        return checksum;
     }
 
     public static void main(String[] args) {
