@@ -8,33 +8,49 @@ import fau.cs7.nwemu.NWEmuPkt;
 
 public class GoBackN {
     private static class GoBackNSender extends AbstractHost {
-        //TODO: Implement GoBackNSender
-        int seqnum = 0;
-        List<NWEmuPkt> waitingQueue = new LinkedList<>();
+        private static final int WINDOW_SIZE = 8;
+
+        private int baseSeqNum = 0;
+        private List<NWEmuMsg> waitingWindow = new LinkedList<>();
+
+        private boolean isAwaited(int seqnum) {
+            return seqnum >= baseSeqNum && seqnum < baseSeqNum + waitingWindow.size();
+        }
 
         @Override
         public void init() {
             // Only useful for re-init
-            seqnum = 0;
-            waitingQueue = new LinkedList<>();
+            baseSeqNum = 0;
+            waitingWindow = new LinkedList<>();
         }
 
         @Override
         public void input(NWEmuPkt packet) {
-            if (!isAwaitingAck || packet.acknum != seqnum || packet.checksum != calculateChecksum(packet)) return;
-            seqnum = 1-seqnum;
-            isAwaitingAck = false;
-            stopTimer();
+            if (packet.checksum != calculateChecksum(packet) || !isAwaited(packet.acknum)) return;
+
+            // Advance baseSeqNum and remove acknowleged packets from waitingWindow
+            int prevBaseSeqNum = baseSeqNum;
+            baseSeqNum = packet.acknum + 1;
+            for (int i = 0; i < baseSeqNum - prevBaseSeqNum; i++) {
+                waitingWindow.removeFirst();
+            }
+
+            // Stop timer if everything was acknowleged
+            if (waitingWindow.isEmpty()) {
+                stopTimer();
+            } else {
+                stopTimer();
+                startTimer(20);
+            }
         }
 
         @Override
         public Boolean output(NWEmuMsg message) {
-            if (isAwaitingAck) return false;
+            if (waitingWindow.size() >= WINDOW_SIZE) return false;
 
-            // Send packet + start waiting
-            currentMsg = message;
-            sendPacket();
-            isAwaitingAck = true;
+            // Send packet + start listening for its ack
+            sendNewPacket(message);
+            waitingWindow.add(message);
 
             // Restart timer
             stopTimer();
@@ -45,18 +61,28 @@ public class GoBackN {
         @Override
         public void timerInterrupt() {
             // Re-send packet
-            sendPacket();
+            resendPackets();
             stopTimer();
             startTimer(20);
         }
 
-        private void sendPacket() {
+        private void sendNewPacket(NWEmuMsg message) {
             NWEmuPkt pkt = new NWEmuPkt();
-            pkt.seqnum = seqnum;
-            pkt.payload = currentMsg.data;
+            pkt.seqnum = baseSeqNum + waitingWindow.size();
+            pkt.payload = message.data;
             pkt.checksum = calculateChecksum(pkt);
 
             toLayer3(pkt);
+        }
+
+        private void resendPackets() {
+            for (int i = 0; i < waitingWindow.size(); i++) {
+                NWEmuPkt pkt = new NWEmuPkt();
+                pkt.seqnum = baseSeqNum + i;
+                pkt.payload = waitingWindow.get(i).data;
+                pkt.checksum = calculateChecksum(pkt);
+                toLayer3(pkt);
+            }
         }
     }
 
@@ -79,7 +105,7 @@ public class GoBackN {
                 NWEmuMsg msg = new NWEmuMsg();
                 msg.data = packet.payload;
                 toLayer5(msg);
-                seqnum++;
+                seqnum = packet.seqnum + 1;
             }
 
             // Send ack (Even for old packets, to resend ack if lost)
