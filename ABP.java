@@ -7,6 +7,14 @@ public class ABP {
         boolean isAwaitingAck = false;
 
         @Override
+        public void init() {
+            // Only useful for re-init
+            seqnum = 0;
+            currentMsg = null;
+            isAwaitingAck = false;
+        }
+
+        @Override
         public void input(NWEmuPkt packet) {
             if (!isAwaitingAck || packet.acknum != seqnum || packet.acknum != packet.checksum) return;
             seqnum = 1-seqnum;
@@ -54,6 +62,12 @@ public class ABP {
 
     private static class ABPReciever extends AbstractHost {
         int seqnum = 0;
+
+        @Override
+        public void init() {
+            // Only useful for re-init
+            seqnum = 0;
+        }
 
         @Override
         public void input(NWEmuPkt packet) {
