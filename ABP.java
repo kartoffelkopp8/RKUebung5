@@ -1,105 +1,87 @@
 import fau.cs7.nwemu.*;
 
 public class ABP {
-  private static class ABPSender extends AbstractHost {
-    private int seq;
-    private boolean sending;
-    private NWEmuPkt pkt;
-    private int checksum;
+    private static class ABPSender extends AbstractHost {
+        int seqnum = 0;
+        NWEmuMsg currentMsg = null;
+        boolean isAwaitingAck = false;
 
-    @Override
-    public void init() {
-      seq = 0;
-      sending = false;
-      pkt = new NWEmuPkt();
-      checksum = 0;
-      super.init();
-      sysLog(1, "Initialising host");
+        @Override
+        public void input(NWEmuPkt packet) {
+            if (!isAwaitingAck || packet.acknum != seqnum || packet.acknum != packet.checksum) return;
+            seqnum = 1-seqnum;
+            isAwaitingAck = false;
+            stopTimer();
+        }
+
+        @Override
+        public Boolean output(NWEmuMsg message) {
+            if (isAwaitingAck) return false;
+
+            // Send packet + start waiting
+            currentMsg = message;
+            sendPacket();
+            isAwaitingAck = true;
+
+            // Restart timer
+            stopTimer();
+            startTimer(20);
+            return true;
+        }
+
+        @Override
+        public void timerInterrupt() {
+            // Re-send packet
+            sendPacket();
+            stopTimer();
+            startTimer(20);
+        }
+
+        private void sendPacket() {
+            NWEmuPkt pkt = new NWEmuPkt();
+            pkt.seqnum = seqnum;
+            pkt.payload = currentMsg.data;
+
+            // Calculate checksum
+            pkt.checksum = pkt.seqnum + pkt.acknum + pkt.flags;
+            for (int i = 0; i < pkt.payload.length; i++) {
+                pkt.checksum += pkt.payload[i];
+            }
+
+            toLayer3(pkt);
+        }
     }
 
-    @Override
-    public void input(NWEmuPkt inbound) {
-      stopTimer();
-      for (int i = 0; i < NWEmu.PAYSIZE; i++) {
-        checksum += inbound.payload[i];
-      }
-      checksum += inbound.acknum + inbound.seqnum;
-      // check sequence number
-      if (checksum == inbound.checksum && inbound.acknum == pkt.seqnum) {
-        seq = (seq + 1) % 2;
-      } else {
-        timerInterrupt();
-      }
-      super.input(inbound);
+    private static class ABPReciever extends AbstractHost {
+        int seqnum = 0;
+
+        @Override
+        public void input(NWEmuPkt packet) {
+            // Verify Checksum
+            int expectedChecksum = packet.seqnum + packet.acknum + packet.flags;
+            for (int i = 0; i < packet.payload.length; i++) {
+                expectedChecksum += packet.payload[i];
+            }
+            if (packet.checksum != expectedChecksum) return;
+
+            // Recieve data (Only new ones, not when it was resent because of a lost ack)
+            if (packet.seqnum == seqnum) {
+                NWEmuMsg msg = new NWEmuMsg();
+                msg.data = packet.payload;
+                toLayer5(msg);
+            }
+
+            // Send ack (Even for old packets, to resend ack if lost)
+            NWEmuPkt ack = new NWEmuPkt();
+            ack.acknum = packet.seqnum;
+            ack.checksum = ack.acknum;
+            toLayer3(ack);
+            seqnum = 1-packet.seqnum;
+        }
     }
 
-    @Override
-    public Boolean output(NWEmuMsg arg0) {
-      if (sending) {
-        return false;
-      }
-      // initialise paket
-      pkt.acknum = -1;
-      pkt.seqnum = 0;
-      for (int i = 0; i < NWEmu.PAYSIZE; i++) {
-        pkt.payload[i] = arg0.data[i];
-        checksum += pkt.payload[i];
-      }
-      pkt.checksum += pkt.seqnum + pkt.acknum;
-      startTimer(10.0);
-      toLayer3(pkt);
-      sending = true;
-      // inkrementiere seq
-      sysLog(1, "sending...");
-      return true;
+    public static void main(String[] args) {
+        NWEmu emu = new NWEmu(new ABPSender(), new ABPReciever());
+        emu.emulate(10, 0.1, 0.3, 1000, 2);
     }
-
-    @Override
-    public void timerInterrupt() {
-      startTimer(10.0);
-      toLayer3(pkt);
-    }
-  }
-
-  private static class ABPReciever extends AbstractHost {
-    private int ack;
-    private NWEmuMsg msg;
-    private NWEmuPkt pkt;
-    private int checksum;
-
-    @Override
-    public void init() {
-      ack = 0;
-      checksum = 0;
-      msg = new NWEmuMsg();
-      pkt = new NWEmuPkt();
-      sysLog(1, "initialising receiver");
-      super.init();
-    }
-
-    @Override
-    public void input(NWEmuPkt arg0) {
-      for (int i = 0; i < NWEmu.PAYSIZE; i++) {
-        checksum += arg0.payload[i];
-        msg.data[i] = arg0.payload[i];
-      }
-      checksum += arg0.seq + arg0.acknum;
-
-      if (arg0.seqnum == ack && checksum == arg0.checksum) {
-        pkt.acknum = ack;
-        ack = (ack + 1) % 2;
-        toLayer3(pkt);
-        sysLog(1, "Paket OK, forwwarding message");
-        toLayer5(msg);
-      } else {
-        // send answer not sure if ack or not?
-      }
-      super.input(arg0);
-    }
-  }
-
-  public static void main(String[] args) {
-    NWEmu emu = new NWEmu(new ABPSender(), new ABPReciever());
-    emu.emulate(1000, 0.1, 0.2, 0.01, 2);
-  }
 }
