@@ -111,7 +111,7 @@ public class GoBackN {
             // Send ack (Even for old packets, to resend ack if lost)
             if (packet.seqnum <= seqnum) {
                 NWEmuPkt ack = new NWEmuPkt();
-                ack.acknum = packet.seqnum;
+                ack.acknum = seqnum - 1;
                 ack.checksum = calculateChecksum(ack); // We don't actually need the full message to be intact, this would be enough: ack.checksum = ack.acknum;
                 toLayer3(ack);
             }
